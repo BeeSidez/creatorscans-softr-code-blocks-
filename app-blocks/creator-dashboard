@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ExternalLink, TrendingUp, Users, Package, Video, Radio, Eye, Heart, Calendar, MapPin, BarChart3, Target } from "lucide-react";
+import { ExternalLink, TrendingUp, Users, Package, Video, Radio, Eye, Heart, Calendar, MapPin, BarChart3, Target, MessageCircle, Share2, Sparkles } from "lucide-react";
 
 const select = q.select({
   handle: "DJMLR",
@@ -69,6 +69,26 @@ const select = q.select({
   video3Likes: "siEfP",
   video3Date: "Te4lu",
   video3Url: "1cqH6",
+
+  // ── API state: metrics computed from the 20 API videos (instant on connect) ──
+  avgLikes: "ZyiFK",
+  avgComments: "8zoVO",
+  avgShares: "E1Rre",
+  totalViews: "vbYyW",
+  medianViews: "cDEuK",
+  topVideoViews: "Rn886",
+  postsPerWeek: "t2T50",
+  videosAnalysed: "FEEVD",
+  engagementFollowers: "dCf43",
+
+  // ── API state: top videos via the Content link + its lookups (index-aligned) ──
+  contentLinks: "1RM2p",
+  cViews: "GjMJP",
+  cLikes: "APwTI",
+  cComments: "hhD38",
+  cShares: "lrCQv",
+  cEmbed: "CuJDk",
+  cShare: "VYjBn",
 });
 
 // Brand colours
@@ -92,6 +112,29 @@ const parsePercent = (val: any): number => {
   if (val === null || val === undefined) return 0;
   return parseFloat(String(val).replace('%', '').replace(',', '')) || 0;
 };
+
+// Attachment fields can come back as an object {url}, an array [{url}], or a string.
+function attUrl(v: any): string | null {
+  if (!v) return null;
+  if (Array.isArray(v)) return v[0]?.url ?? null;
+  if (typeof v === "object") return v.url ?? null;
+  return typeof v === "string" ? v : null;
+}
+
+// The Content Embed Link is a TikTok player URL with autoplay=1; turn it off so a
+// grid of embeds doesn't all play at once.
+function noAutoplay(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return String(url).replace("autoplay=1", "autoplay=0");
+}
+
+const fmtNum = (n: any): string => {
+  if (n === null || n === undefined || n === "") return "—";
+  const num = Number(n);
+  return Number.isFinite(num) ? num.toLocaleString() : String(n);
+};
+const fmtPct = (n: any): string =>
+  (n === null || n === undefined || n === "") ? "—" : `${n}%`;
 
 function getVideoEmbedUrl(url: string | null | undefined): string | null {
   if (!url) return null;
@@ -198,6 +241,90 @@ function LocationBadge({ rank, name }: { rank: number; name: string }) {
   );
 }
 
+// --- Shared profile header (both states) ---
+function ProfileHeader({ f, profilePic }: { f: any; profilePic: string | null }) {
+  const growthStatus = f.growthStatus?.label || null;
+  return (
+    <Card className="border-0 overflow-hidden" style={{ background: `linear-gradient(135deg, ${CS.navy3} 0%, ${CS.navy} 100%)` }}>
+      <CardContent className="pt-6 pb-6">
+        <div className="flex flex-col md:flex-row gap-6 items-start">
+          <div className="relative">
+            <div className="rounded-full p-0.5" style={{ background: `linear-gradient(135deg, ${CS.blue} 0%, ${CS.blue4} 100%)` }}>
+              <Avatar className="h-20 w-20 border-2 border-transparent">
+                <AvatarImage src={profilePic || undefined} alt={f.displayName || f.handle || "Creator"} />
+                <AvatarFallback className="text-xl font-bold" style={{ backgroundColor: CS.navy2, color: 'white' }}>
+                  {(f.displayName || f.handle || "C")[0].toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+            </div>
+          </div>
+          <div className="flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-bold text-white">{f.displayName || f.handle}</h1>
+              {growthStatus && (
+                <Badge className="text-white border-0 text-xs" style={{ backgroundColor: CS.blue }}>
+                  {growthStatus}
+                </Badge>
+              )}
+            </div>
+            {f.handle && <p className="text-sm" style={{ color: CS.blue4 }}>@{f.handle}</p>}
+            {f.bio && <p className="text-sm text-white/70 max-w-lg">{f.bio}</p>}
+            <div className="flex flex-wrap gap-4 text-sm mt-3" style={{ color: CS.blue5 }}>
+              {f.categories && <span>{f.categories}</span>}
+              {f.followers !== null && f.followers !== undefined && f.followers !== "" && (
+                <span className="flex items-center gap-1">
+                  <Users className="h-3.5 w-3.5" /> {fmtNum(f.followers)} followers
+                </span>
+              )}
+              {f.profileLink && (
+                <a href={f.profileLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-white transition-colors">
+                  <ExternalLink className="h-3.5 w-3.5" /> TikTok Profile
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Video card (TikTok player embed) ---
+function VideoCard({ embed, fallbackUrl, title, stats }: { embed: string | null; fallbackUrl?: string | null; title: string; stats: { icon: any; value: any; color: string }[] }) {
+  return (
+    <div className="space-y-3 group">
+      {embed ? (
+        <div className="aspect-[9/16] w-full rounded-xl overflow-hidden" style={{ backgroundColor: CS.light2 }}>
+          <iframe
+            src={embed}
+            className="w-full h-full"
+            allowFullScreen
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          />
+        </div>
+      ) : fallbackUrl ? (
+        <a href={fallbackUrl} target="_blank" rel="noopener noreferrer" className="block aspect-[9/16] w-full rounded-xl flex items-center justify-center transition-colors" style={{ backgroundColor: CS.light2 }}>
+          <Video className="h-10 w-10" style={{ color: CS.blue4 }} />
+        </a>
+      ) : (
+        <div className="aspect-[9/16] w-full rounded-xl flex items-center justify-center" style={{ backgroundColor: CS.light2 }}>
+          <Video className="h-10 w-10" style={{ color: CS.blue4 }} />
+        </div>
+      )}
+      <div className="space-y-1.5">
+        <h4 className="font-medium text-sm line-clamp-2" style={{ color: CS.navy }}>{title}</h4>
+        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+          {stats.filter((s) => s.value !== null && s.value !== undefined && s.value !== "").map((s, i) => (
+            <span key={i} className="flex items-center gap-1">
+              <s.icon className="h-3 w-3" style={{ color: s.color }} /> {fmtNum(s.value)}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Block() {
   const recordId = useCurrentRecordId();
   const { data, status } = useRecord({ recordId, select });
@@ -225,103 +352,183 @@ export default function Block() {
     );
   }
 
-  const profilePic = Array.isArray(data.fields.profilePicture) && data.fields.profilePicture.length > 0
-    ? data.fields.profilePicture[0].url
-    : null;
-  const growthStatus = data.fields.growthStatus?.label || null;
-  const dataPeriod = data.fields.dataPeriod?.label || null;
+  const f = data.fields;
+  const profilePic = attUrl(f.profilePicture);
+
+  // Two data sources / two UI states: API metrics arrive instantly on connect;
+  // the enriched scrape (demographics, GMV, collabs, LIVE) lands later via Cowork.
+  // Detect the scrape by a scrape-only field.
+  const scrapeDone = !!(f.dataPeriod || f.gmv || f.itemsSold);
+
+  // ─────────────────────────────────────────────────────────────────
+  // API STATE — basic report from the TikTok API (no scrape yet)
+  // ─────────────────────────────────────────────────────────────────
+  if (!scrapeDone) {
+    const links: any[] = Array.isArray(f.contentLinks) ? f.contentLinks : [];
+    const topVideos = links
+      .map((c: any, i: number) => ({
+        id: c?.id,
+        title: c?.label || "Untitled",
+        views: f.cViews?.[i] ?? 0,
+        likes: f.cLikes?.[i] ?? 0,
+        comments: f.cComments?.[i] ?? 0,
+        shares: f.cShares?.[i] ?? 0,
+        embed: noAutoplay(f.cEmbed?.[i]),
+        share: f.cShare?.[i] || null,
+      }))
+      .sort((a, b) => (Number(b.views) || 0) - (Number(a.views) || 0))
+      .slice(0, 3);
+
+    return (
+      <div className="container py-8">
+        <div className="content space-y-6">
+
+          <ProfileHeader f={f} profilePic={profilePic} />
+
+          {/* Pending full-profile note */}
+          <div className="flex items-start gap-3 rounded-xl p-4" style={{ backgroundColor: CS.light1, border: `1px solid ${CS.light2}` }}>
+            <div className="p-2 rounded-lg flex-shrink-0" style={{ backgroundColor: `${CS.blue3}15` }}>
+              <Sparkles className="h-5 w-5" style={{ color: CS.blue3 }} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold" style={{ color: CS.navy }}>Your full creator report is on its way</p>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Audience demographics, sales (GMV), brand collaborations and LIVE performance will appear here once your full scan completes.
+              </p>
+            </div>
+          </div>
+
+          {/* Headline metrics */}
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+            <MetricCard icon={Users}    label="Followers"        value={fmtNum(f.followers)}            color={CS.blue} />
+            <MetricCard icon={Eye}      label="Avg views"        value={fmtNum(f.avgVideoViews)} sub="per video" color={CS.blue2} />
+            <MetricCard icon={Target}   label="Engagement rate"  value={fmtPct(f.engagementFollowers)} sub="of followers" color={CS.blue3} />
+            <MetricCard icon={Calendar} label="Posts / week"     value={fmtNum(f.postsPerWeek)}         color={CS.blue4} />
+          </div>
+
+          {/* Reach metrics */}
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+            <MetricCard icon={BarChart3}  label="Total views"     value={fmtNum(f.totalViews)}    color={CS.blue} />
+            <MetricCard icon={TrendingUp} label="Median views"    value={fmtNum(f.medianViews)}   color={CS.blue2} />
+            <MetricCard icon={TrendingUp} label="Top video"       value={fmtNum(f.topVideoViews)} color={CS.blue3} />
+            <MetricCard icon={Video}      label="Videos analysed" value={fmtNum(f.videosAnalysed)} sub="from TikTok API" color={CS.blue4} />
+          </div>
+
+          {/* Avg engagement per video */}
+          <Card className="border-0 shadow-sm" style={{ backgroundColor: CS.light1 }}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base" style={{ color: CS.navy }}>Average engagement per video</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="flex items-center gap-2">
+                  <Heart className="h-5 w-5" style={{ color: CS.red }} />
+                  <div>
+                    <p className="text-xl font-bold" style={{ color: CS.navy }}>{fmtNum(f.avgLikes)}</p>
+                    <p className="text-xs text-muted-foreground">Likes</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="h-5 w-5" style={{ color: CS.blue3 }} />
+                  <div>
+                    <p className="text-xl font-bold" style={{ color: CS.navy }}>{fmtNum(f.avgComments)}</p>
+                    <p className="text-xs text-muted-foreground">Comments</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Share2 className="h-5 w-5" style={{ color: CS.blue }} />
+                  <div>
+                    <p className="text-xl font-bold" style={{ color: CS.navy }}>{fmtNum(f.avgShares)}</p>
+                    <p className="text-xs text-muted-foreground">Shares</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Top performing videos */}
+          {topVideos.length > 0 && (
+            <Card className="border-0 shadow-sm" style={{ backgroundColor: CS.light1 }}>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base" style={{ color: CS.navy }}>Top performing videos</CardTitle>
+                <CardDescription>Your most-viewed posts</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  {topVideos.map((vid, i) => (
+                    <VideoCard
+                      key={vid.id || i}
+                      embed={vid.embed}
+                      fallbackUrl={vid.share}
+                      title={vid.title}
+                      stats={[
+                        { icon: Eye, value: vid.views, color: CS.blue3 },
+                        { icon: Heart, value: vid.likes, color: CS.red },
+                        { icon: MessageCircle, value: vid.comments, color: CS.blue4 },
+                        { icon: Share2, value: vid.shares, color: CS.blue },
+                      ]}
+                    />
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // FULL STATE — enriched profile (scrape complete)
+  // ─────────────────────────────────────────────────────────────────
+  const dataPeriod = f.dataPeriod?.label || null;
 
   // Parse demographic percentages
-  const femaleVal = parsePercent(data.fields.female);
-  const maleVal = parsePercent(data.fields.male);
+  const femaleVal = parsePercent(f.female);
+  const maleVal = parsePercent(f.male);
   const ageData = [
-    { label: "18-24", value: parsePercent(data.fields.age1824), color: CS.blue5 },
-    { label: "25-34", value: parsePercent(data.fields.age2534), color: CS.blue4 },
-    { label: "35-44", value: parsePercent(data.fields.age3544), color: CS.blue3 },
-    { label: "45-54", value: parsePercent(data.fields.age4554), color: CS.blue2 },
-    { label: "55+", value: parsePercent(data.fields.age55plus), color: CS.blue },
+    { label: "18-24", value: parsePercent(f.age1824), color: CS.blue5 },
+    { label: "25-34", value: parsePercent(f.age2534), color: CS.blue4 },
+    { label: "35-44", value: parsePercent(f.age3544), color: CS.blue3 },
+    { label: "45-54", value: parsePercent(f.age4554), color: CS.blue2 },
+    { label: "55+", value: parsePercent(f.age55plus), color: CS.blue },
   ];
   const maxAge = Math.max(...ageData.map(a => a.value), 1);
 
   // Parse sales channel percentages
-  const videoChannelPct = parsePercent(data.fields.gmvVideo);
-  const productCardsPct = parsePercent(data.fields.gmvProductCards);
+  const videoChannelPct = parsePercent(f.gmvVideo);
+  const productCardsPct = parsePercent(f.gmvProductCards);
 
   // Parse category percentages
   const categories = [
-    { name: data.fields.gmvCategory1, pct: parsePercent(data.fields.gmvCategory1Pct), color: CS.blue },
-    { name: data.fields.gmvCategory2, pct: parsePercent(data.fields.gmvCategory2Pct), color: CS.blue2 },
-    { name: data.fields.gmvCategory3, pct: parsePercent(data.fields.gmvCategory3Pct), color: CS.blue3 },
-    { name: data.fields.gmvCategory4, pct: parsePercent(data.fields.gmvCategory4Pct), color: CS.blue4 },
+    { name: f.gmvCategory1, pct: parsePercent(f.gmvCategory1Pct), color: CS.blue },
+    { name: f.gmvCategory2, pct: parsePercent(f.gmvCategory2Pct), color: CS.blue2 },
+    { name: f.gmvCategory3, pct: parsePercent(f.gmvCategory3Pct), color: CS.blue3 },
+    { name: f.gmvCategory4, pct: parsePercent(f.gmvCategory4Pct), color: CS.blue4 },
   ].filter(c => c.name);
   const maxCat = Math.max(...categories.map(c => c.pct), 1);
 
   // Locations
   const locations = [
-    data.fields.topLocation1?.label || data.fields.topLocation1,
-    data.fields.topLocation2?.label || data.fields.topLocation2,
-    data.fields.topLocation3,
-    data.fields.topLocation4,
-    data.fields.topLocation5,
+    f.topLocation1?.label || f.topLocation1,
+    f.topLocation2?.label || f.topLocation2,
+    f.topLocation3,
+    f.topLocation4,
+    f.topLocation5,
   ].filter(Boolean);
 
-  // Videos
-  const video1EmbedUrl = getVideoEmbedUrl(data.fields.video1Url);
-  const video2EmbedUrl = getVideoEmbedUrl(data.fields.video2Url);
-  const video3EmbedUrl = getVideoEmbedUrl(data.fields.video3Url);
-
+  // Videos with products (scrape)
   const videos = [
-    { title: data.fields.video1Title, views: data.fields.video1Views, likes: data.fields.video1Likes, date: data.fields.video1Date, url: data.fields.video1Url, embed: video1EmbedUrl },
-    { title: data.fields.video2Title, views: data.fields.video2Views, likes: data.fields.video2Likes, date: data.fields.video2Date, url: data.fields.video2Url, embed: video2EmbedUrl },
-    { title: data.fields.video3Title, views: data.fields.video3Views, likes: data.fields.video3Likes, date: data.fields.video3Date, url: data.fields.video3Url, embed: video3EmbedUrl },
+    { title: f.video1Title, views: f.video1Views, likes: f.video1Likes, date: f.video1Date, url: f.video1Url, embed: getVideoEmbedUrl(f.video1Url) },
+    { title: f.video2Title, views: f.video2Views, likes: f.video2Likes, date: f.video2Date, url: f.video2Url, embed: getVideoEmbedUrl(f.video2Url) },
+    { title: f.video3Title, views: f.video3Views, likes: f.video3Likes, date: f.video3Date, url: f.video3Url, embed: getVideoEmbedUrl(f.video3Url) },
   ].filter(v => v.title);
 
   return (
     <div className="container py-8">
       <div className="content space-y-6">
 
-        {/* ── Profile Header (Dark Navy) ── */}
-        <Card className="border-0 overflow-hidden" style={{ background: `linear-gradient(135deg, ${CS.navy3} 0%, ${CS.navy} 100%)` }}>
-          <CardContent className="pt-6 pb-6">
-            <div className="flex flex-col md:flex-row gap-6 items-start">
-              <div className="relative">
-                <div className="rounded-full p-0.5" style={{ background: `linear-gradient(135deg, ${CS.blue} 0%, ${CS.blue4} 100%)` }}>
-                  <Avatar className="h-20 w-20 border-2 border-transparent">
-                    <AvatarImage src={profilePic || undefined} alt={data.fields.displayName || data.fields.handle || "Creator"} />
-                    <AvatarFallback className="text-xl font-bold" style={{ backgroundColor: CS.navy2, color: 'white' }}>
-                      {(data.fields.displayName || data.fields.handle || "C")[0].toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                </div>
-              </div>
-              <div className="flex-1 space-y-2">
-                <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="text-2xl font-bold text-white">{data.fields.displayName || data.fields.handle}</h1>
-                  {growthStatus && (
-                    <Badge className="text-white border-0 text-xs" style={{ backgroundColor: CS.blue }}>
-                      {growthStatus}
-                    </Badge>
-                  )}
-                </div>
-                {data.fields.handle && <p className="text-sm" style={{ color: CS.blue4 }}>@{data.fields.handle}</p>}
-                {data.fields.bio && <p className="text-sm text-white/70 max-w-lg">{data.fields.bio}</p>}
-                <div className="flex flex-wrap gap-4 text-sm mt-3" style={{ color: CS.blue5 }}>
-                  {data.fields.categories && <span>{data.fields.categories}</span>}
-                  {data.fields.followers && (
-                    <span className="flex items-center gap-1">
-                      <Users className="h-3.5 w-3.5" /> {data.fields.followers}
-                    </span>
-                  )}
-                  {data.fields.profileLink && (
-                    <a href={data.fields.profileLink} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-white transition-colors">
-                      <ExternalLink className="h-3.5 w-3.5" /> TikTok Profile
-                    </a>
-                  )}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <ProfileHeader f={f} profilePic={profilePic} />
 
         {dataPeriod && (
           <div className="flex items-center gap-2 text-xs font-medium px-1" style={{ color: CS.blue3 }}>
@@ -335,29 +542,29 @@ export default function Block() {
           <MetricCard
             icon={TrendingUp}
             label="Total GMV"
-            value={data.fields.gmv || "\u2014"}
-            sub={data.fields.gpm !== null ? `GPM: ${typeof data.fields.gpm === 'number' ? `\u00A3${data.fields.gpm.toFixed(2)}` : data.fields.gpm}` : undefined}
+            value={f.gmv || "—"}
+            sub={f.gpm !== null ? `GPM: ${typeof f.gpm === 'number' ? `£${f.gpm.toFixed(2)}` : f.gpm}` : undefined}
             color={CS.blue}
           />
           <MetricCard
             icon={Package}
             label="Items Sold"
-            value={data.fields.itemsSold || "\u2014"}
-            sub={data.fields.products !== null ? `${data.fields.products} products` : undefined}
+            value={f.itemsSold || "—"}
+            sub={f.products !== null ? `${f.products} products` : undefined}
             color={CS.blue2}
           />
           <MetricCard
             icon={Video}
             label="Videos"
-            value={data.fields.videos !== null ? String(data.fields.videos) : "\u2014"}
-            sub={data.fields.avgVideoViews !== null ? `Avg ${data.fields.avgVideoViews.toLocaleString()} views` : undefined}
+            value={f.videos !== null ? String(f.videos) : "—"}
+            sub={f.avgVideoViews !== null ? `Avg ${Number(f.avgVideoViews).toLocaleString()} views` : undefined}
             color={CS.blue3}
           />
           <MetricCard
             icon={Radio}
             label="Live Streams"
-            value={data.fields.liveStreams !== null ? String(data.fields.liveStreams) : "\u2014"}
-            sub={data.fields.avgLiveViews ? `Avg ${data.fields.avgLiveViews} views` : undefined}
+            value={f.liveStreams !== null ? String(f.liveStreams) : "—"}
+            sub={f.avgLiveViews ? `Avg ${f.avgLiveViews} views` : undefined}
             color={CS.blue4}
           />
         </div>
@@ -389,28 +596,28 @@ export default function Block() {
               <CardDescription>Key performance indicators</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {data.fields.gmvPerCustomer !== null && (
+              {f.gmvPerCustomer !== null && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">GMV per Customer</span>
-                  <span className="font-bold" style={{ color: CS.navy }}>{typeof data.fields.gmvPerCustomer === 'number' ? `\u00A3${data.fields.gmvPerCustomer.toFixed(2)}` : data.fields.gmvPerCustomer}</span>
+                  <span className="font-bold" style={{ color: CS.navy }}>{typeof f.gmvPerCustomer === 'number' ? `£${f.gmvPerCustomer.toFixed(2)}` : f.gmvPerCustomer}</span>
                 </div>
               )}
-              {data.fields.avgCommissionRate && (
+              {f.avgCommissionRate && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Avg Commission Rate</span>
-                  <span className="font-bold" style={{ color: CS.navy }}>{data.fields.avgCommissionRate}</span>
+                  <span className="font-bold" style={{ color: CS.navy }}>{f.avgCommissionRate}</span>
                 </div>
               )}
-              {data.fields.brandCollaborations !== null && (
+              {f.brandCollaborations !== null && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Brand Collaborations</span>
-                  <span className="font-bold" style={{ color: CS.navy }}>{data.fields.brandCollaborations}</span>
+                  <span className="font-bold" style={{ color: CS.navy }}>{f.brandCollaborations}</span>
                 </div>
               )}
-              {data.fields.productPrice && (
+              {f.productPrice && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Avg Product Price</span>
-                  <span className="font-bold" style={{ color: CS.navy }}>{data.fields.productPrice}</span>
+                  <span className="font-bold" style={{ color: CS.navy }}>{f.productPrice}</span>
                 </div>
               )}
             </CardContent>
@@ -496,22 +703,22 @@ export default function Block() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {data.fields.videoGpm !== null && (
+              {f.videoGpm !== null && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Video GPM</span>
-                  <span className="font-bold text-lg" style={{ color: CS.blue }}>{typeof data.fields.videoGpm === 'number' ? `\u00A3${data.fields.videoGpm.toFixed(2)}` : data.fields.videoGpm}</span>
+                  <span className="font-bold text-lg" style={{ color: CS.blue }}>{typeof f.videoGpm === 'number' ? `£${f.videoGpm.toFixed(2)}` : f.videoGpm}</span>
                 </div>
               )}
-              {data.fields.avgVideoViews !== null && (
+              {f.avgVideoViews !== null && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Avg Views</span>
-                  <span className="font-semibold" style={{ color: CS.navy }}>{data.fields.avgVideoViews.toLocaleString()}</span>
+                  <span className="font-semibold" style={{ color: CS.navy }}>{Number(f.avgVideoViews).toLocaleString()}</span>
                 </div>
               )}
-              {data.fields.avgVideoEngagement && (
+              {f.avgVideoEngagement && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Avg Engagement</span>
-                  <span className="font-semibold" style={{ color: CS.navy }}>{data.fields.avgVideoEngagement}</span>
+                  <span className="font-semibold" style={{ color: CS.navy }}>{f.avgVideoEngagement}</span>
                 </div>
               )}
             </CardContent>
@@ -525,22 +732,22 @@ export default function Block() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              {data.fields.liveGpm !== null && (
+              {f.liveGpm !== null && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Live GPM</span>
-                  <span className="font-bold text-lg" style={{ color: CS.red }}>{typeof data.fields.liveGpm === 'number' ? `\u00A3${data.fields.liveGpm.toFixed(2)}` : data.fields.liveGpm}</span>
+                  <span className="font-bold text-lg" style={{ color: CS.red }}>{typeof f.liveGpm === 'number' ? `£${f.liveGpm.toFixed(2)}` : f.liveGpm}</span>
                 </div>
               )}
-              {data.fields.avgLiveViews && (
+              {f.avgLiveViews && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Avg Views</span>
-                  <span className="font-semibold" style={{ color: CS.navy }}>{data.fields.avgLiveViews}</span>
+                  <span className="font-semibold" style={{ color: CS.navy }}>{f.avgLiveViews}</span>
                 </div>
               )}
-              {data.fields.avgLiveEngagement && (
+              {f.avgLiveEngagement && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-muted-foreground">Avg Engagement</span>
-                  <span className="font-semibold" style={{ color: CS.navy }}>{data.fields.avgLiveEngagement}</span>
+                  <span className="font-semibold" style={{ color: CS.navy }}>{f.avgLiveEngagement}</span>
                 </div>
               )}
             </CardContent>
@@ -556,46 +763,16 @@ export default function Block() {
             <CardContent>
               <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {videos.map((vid, i) => (
-                  <div key={i} className="space-y-3 group">
-                    {vid.embed ? (
-                      <div className="aspect-[9/16] w-full rounded-xl overflow-hidden" style={{ backgroundColor: CS.light2 }}>
-                        <iframe
-                          src={vid.embed}
-                          className="w-full h-full"
-                          allowFullScreen
-                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        />
-                      </div>
-                    ) : vid.url ? (
-                      <a href={vid.url} target="_blank" rel="noopener noreferrer" className="block aspect-[9/16] w-full rounded-xl flex items-center justify-center transition-colors" style={{ backgroundColor: CS.light2 }}>
-                        <Video className="h-10 w-10" style={{ color: CS.blue4 }} />
-                      </a>
-                    ) : (
-                      <div className="aspect-[9/16] w-full rounded-xl flex items-center justify-center" style={{ backgroundColor: CS.light2 }}>
-                        <Video className="h-10 w-10" style={{ color: CS.blue4 }} />
-                      </div>
-                    )}
-                    <div className="space-y-1.5">
-                      <h4 className="font-medium text-sm line-clamp-2" style={{ color: CS.navy }}>{vid.title}</h4>
-                      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                        {vid.views && (
-                          <span className="flex items-center gap-1">
-                            <Eye className="h-3 w-3" style={{ color: CS.blue3 }} /> {vid.views}
-                          </span>
-                        )}
-                        {vid.likes && (
-                          <span className="flex items-center gap-1">
-                            <Heart className="h-3 w-3" style={{ color: CS.red }} /> {vid.likes}
-                          </span>
-                        )}
-                      </div>
-                      {vid.date && (
-                        <div className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Calendar className="h-3 w-3" style={{ color: CS.blue4 }} /> {new Date(vid.date).toLocaleDateString()}
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <VideoCard
+                    key={i}
+                    embed={vid.embed}
+                    fallbackUrl={vid.url}
+                    title={vid.title}
+                    stats={[
+                      { icon: Eye, value: vid.views, color: CS.blue3 },
+                      { icon: Heart, value: vid.likes, color: CS.red },
+                    ]}
+                  />
                 ))}
               </div>
             </CardContent>
