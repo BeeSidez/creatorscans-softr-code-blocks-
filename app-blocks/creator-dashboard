@@ -81,14 +81,10 @@ const select = q.select({
   videosAnalysed: "FEEVD",
   engagementFollowers: "dCf43",
 
-  // ── API state: top videos via the Content link + its lookups (index-aligned) ──
-  contentLinks: "1RM2p",
-  cViews: "GjMJP",
-  cLikes: "APwTI",
-  cComments: "hhD38",
-  cShares: "lrCQv",
-  cEmbed: "CuJDk",
-  cShare: "VYjBn",
+  // ── API state: top videos — full per-video JSON in ONE field (n8n writes it).
+  // Parsing one JSON blob keeps each video's title/embed/stats together; parallel
+  // lookup fields drift out of alignment in Softr's data layer.
+  videosJson: "MqIBi",
 });
 
 // Brand colours
@@ -364,17 +360,18 @@ export default function Block() {
   // API STATE — basic report from the TikTok API (no scrape yet)
   // ─────────────────────────────────────────────────────────────────
   if (!scrapeDone) {
-    const links: any[] = Array.isArray(f.contentLinks) ? f.contentLinks : [];
-    const topVideos = links
-      .map((c: any, i: number) => ({
-        id: c?.id,
-        title: c?.label || "Untitled",
-        views: f.cViews?.[i] ?? 0,
-        likes: f.cLikes?.[i] ?? 0,
-        comments: f.cComments?.[i] ?? 0,
-        shares: f.cShares?.[i] ?? 0,
-        embed: noAutoplay(f.cEmbed?.[i]),
-        share: f.cShare?.[i] || null,
+    let allVideos: any[] = [];
+    try { allVideos = f.videosJson ? JSON.parse(f.videosJson) : []; } catch { allVideos = []; }
+    const topVideos = allVideos
+      .map((v: any) => ({
+        id: v.id,
+        title: v.title || "Untitled",
+        views: v.views ?? 0,
+        likes: v.likes ?? 0,
+        comments: v.comments ?? 0,
+        shares: v.shares ?? 0,
+        embed: noAutoplay(v.embed),
+        share: v.share_url || null,
       }))
       .sort((a, b) => (Number(b.views) || 0) - (Number(a.views) || 0))
       .slice(0, 3);
