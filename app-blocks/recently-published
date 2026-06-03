@@ -183,7 +183,14 @@ export default function Block() {
     if (!user?.id) { toast.error("Not signed in"); return; }
     setRefreshing(true);
     try {
-      await fetch(`${REFRESH_WEBHOOK_URL}?user_id=${encodeURIComponent(user.id)}`);
+      // POST the user_id; n8n loads the full Users record from it (Creator
+      // Dashboard link, tokens, open id, display name) server-side. Tokens never
+      // touch the browser.
+      await fetch(REFRESH_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: user.id }),
+      });
       // give the workflow a moment to write new rows, then reload the grid
       setTimeout(async () => { await refetch(); setRefreshing(false); toast.success("Checked for new videos"); }, 4000);
     } catch (e) {
