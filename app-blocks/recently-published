@@ -37,6 +37,7 @@ const select = q.select({
   contentType: "7oDYF",
   status:      "QN0YD",
   shareUrl:    "l8QU1",
+  videoId:     "drcxS",
   postedDate:  "kk6tn",
 });
 
@@ -52,6 +53,15 @@ function attachUrl(v) {
   if (typeof v === "object") return v.url ?? null;
   if (typeof v === "string") return v;
   return null;
+}
+// Official TikTok inline player. Use the stored video id, else parse it from the share URL.
+function embedUrl(videoId, shareUrl) {
+  let id = videoId ? String(videoId).trim() : "";
+  if (!id && shareUrl) {
+    const m = String(shareUrl).match(/video\/(\d+)/);
+    if (m) id = m[1];
+  }
+  return id ? `https://www.tiktok.com/embed/v2/${id}` : null;
 }
 function typeMeta(type) {
   const t = (type || "").toLowerCase();
@@ -80,6 +90,7 @@ function Stats({ views, likes, comments, shares }) {
 function ContentCard({ record }) {
   const f = record.fields || {};
   const cover = attachUrl(f.coverImage);
+  const embed = embedUrl(f.videoId, f.shareUrl);
   const type = valLabel(f.contentType);
   const status = valLabel(f.status);
   const { Icon } = typeMeta(type);
@@ -91,20 +102,33 @@ function ContentCard({ record }) {
   return (
     <div className="bg-white rounded-xl shadow-sm overflow-hidden flex flex-col"
          style={{ border: `1px solid ${CS_BORDER}` }}>
-      {/* cover */}
-      <div onClick={openTikTok} className="relative bg-black cursor-pointer group" style={{ aspectRatio: "9 / 16" }}>
-        {cover
-          ? <img src={cover} alt={f.title || ""} className="w-full h-full object-cover" />
-          : <div className="w-full h-full flex items-center justify-center"><Play className="h-8 w-8 text-white/60" /></div>}
-        <div className="absolute top-2 left-2 h-8 w-8 rounded-lg flex items-center justify-center"
-             style={{ backgroundColor: CS_ACCENT }}>
-          <Icon className="h-4 w-4 text-white" />
-        </div>
-        {status && (
-          <span className="absolute top-2 right-2 text-xs font-medium px-2 py-0.5 rounded-full"
-                style={{ backgroundColor: "rgba(22,163,74,0.12)", color: CS_GREEN }}>
-            {status}
-          </span>
+      {/* media — official TikTok inline player, falls back to cover image */}
+      <div className="relative bg-black" style={{ aspectRatio: "9 / 16" }}>
+        {embed ? (
+          <iframe
+            src={embed}
+            title={f.title || "TikTok video"}
+            loading="lazy"
+            className="w-full h-full"
+            allowFullScreen
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          />
+        ) : (
+          <>
+            {cover
+              ? <img src={cover} alt={f.title || ""} onClick={openTikTok} className="w-full h-full object-cover cursor-pointer" />
+              : <div onClick={openTikTok} className="w-full h-full flex items-center justify-center cursor-pointer"><Play className="h-8 w-8 text-white/60" /></div>}
+            <div className="absolute top-2 left-2 h-8 w-8 rounded-lg flex items-center justify-center pointer-events-none"
+                 style={{ backgroundColor: CS_ACCENT }}>
+              <Icon className="h-4 w-4 text-white" />
+            </div>
+            {status && (
+              <span className="absolute top-2 right-2 text-xs font-medium px-2 py-0.5 rounded-full pointer-events-none"
+                    style={{ backgroundColor: "rgba(22,163,74,0.12)", color: CS_GREEN }}>
+                {status}
+              </span>
+            )}
+          </>
         )}
       </div>
 
