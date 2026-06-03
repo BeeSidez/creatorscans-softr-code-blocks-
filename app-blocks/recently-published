@@ -1,0 +1,227 @@
+import { useState, useMemo } from "react";
+import { useRecords, q } from "@/lib/datasource";
+import { useCurrentUser } from "@/lib/user";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
+import {
+  Eye, ThumbsUp, MessageCircle, Share2, Play, Radio, ShoppingBag,
+  RefreshCw, Search, ArrowUpRight, ExternalLink,
+} from "lucide-react";
+
+// ─── Theme ─────────────────────────────────────────────────────────
+const CS_ACCENT  = "#000A30";
+const CS_NAVY    = "#001364";
+const CS_PRIMARY = "#5E7BF6";
+const CS_BORDER  = "#eef4fd";
+const CS_MUTED   = "#6b7a99";
+const CS_GREEN   = "#16a34a";
+
+// Refresh webhook — pulls latest videos for the logged-in user.
+const REFRESH_WEBHOOK_URL =
+  "https://overploy.app.n8n.cloud/webhook/c971b751-5db6-40f4-ab3c-d0f3be3c3bbb";
+
+// ─── Field map (Content table) ─────────────────────────────────────
+const select = q.select({
+  title:       "Y3LEa",
+  description: "dHAW3",
+  coverImage:  "LxGqi",
+  views:       "LXju4",
+  likes:       "7fZwO",
+  comments:    "gfPmQ",
+  shares:      "UQd0G",
+  contentType: "7oDYF",
+  status:      "QN0YD",
+  shareUrl:    "l8QU1",
+  postedDate:  "kk6tn",
+});
+
+// ─── Helpers ───────────────────────────────────────────────────────
+function valLabel(v) {
+  if (!v) return "";
+  return typeof v === "object" ? (v.label ?? "") : String(v);
+}
+// Attachment can come back as an object {url}, an array [{url}], or a string.
+function attachUrl(v) {
+  if (!v) return null;
+  if (Array.isArray(v)) return v[0]?.url ?? null;
+  if (typeof v === "object") return v.url ?? null;
+  if (typeof v === "string") return v;
+  return null;
+}
+function typeMeta(type) {
+  const t = (type || "").toLowerCase();
+  if (t.includes("live")) return { Icon: Radio,       label: "Live" };
+  if (t.includes("shop")) return { Icon: ShoppingBag, label: "Shop" };
+  return { Icon: Play, label: "Video" };
+}
+
+// ─── Stats row ─────────────────────────────────────────────────────
+function Stats({ views, likes, comments, shares }) {
+  const fmt = (n) => {
+    const x = Number(n) || 0;
+    return x >= 1000 ? (x / 1000).toFixed(x >= 10000 ? 0 : 1) + "K" : x;
+  };
+  return (
+    <div className="flex items-center gap-3 text-sm" style={{ color: CS_MUTED }}>
+      <span className="flex items-center gap-1"><Eye className="h-4 w-4" /> {fmt(views)}</span>
+      <span className="flex items-center gap-1"><ThumbsUp className="h-4 w-4" /> {fmt(likes)}</span>
+      <span className="flex items-center gap-1"><MessageCircle className="h-4 w-4" /> {fmt(comments)}</span>
+      <span className="flex items-center gap-1"><Share2 className="h-4 w-4" /> {fmt(shares)}</span>
+    </div>
+  );
+}
+
+// ─── Card ──────────────────────────────────────────────────────────
+function ContentCard({ record }) {
+  const f = record.fields || {};
+  const cover = attachUrl(f.coverImage);
+  const type = valLabel(f.contentType);
+  const status = valLabel(f.status);
+  const { Icon } = typeMeta(type);
+
+  const openReview = () =>
+    window.openSwModal?.(`/proof?recordId=${record.id}`, "lg");
+  const openTikTok = () => f.shareUrl && window.open(f.shareUrl, "_blank");
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm overflow-hidden flex flex-col"
+         style={{ border: `1px solid ${CS_BORDER}` }}>
+      {/* cover */}
+      <div onClick={openTikTok} className="relative bg-black cursor-pointer group" style={{ aspectRatio: "9 / 16" }}>
+        {cover
+          ? <img src={cover} alt={f.title || ""} className="w-full h-full object-cover" />
+          : <div className="w-full h-full flex items-center justify-center"><Play className="h-8 w-8 text-white/60" /></div>}
+        <div className="absolute top-2 left-2 h-8 w-8 rounded-lg flex items-center justify-center"
+             style={{ backgroundColor: CS_ACCENT }}>
+          <Icon className="h-4 w-4 text-white" />
+        </div>
+        {status && (
+          <span className="absolute top-2 right-2 text-xs font-medium px-2 py-0.5 rounded-full"
+                style={{ backgroundColor: "rgba(22,163,74,0.12)", color: CS_GREEN }}>
+            {status}
+          </span>
+        )}
+      </div>
+
+      {/* body */}
+      <div className="p-3 flex flex-col gap-2 flex-1">
+        <h3 className="text-sm font-medium leading-snug line-clamp-1" style={{ color: CS_NAVY }}>
+          {f.title || "Untitled"}
+        </h3>
+        <Stats views={f.views} likes={f.likes} comments={f.comments} shares={f.shares} />
+        <p className="text-xs leading-relaxed line-clamp-2" style={{ color: CS_MUTED }}>
+          {f.description || ""}
+        </p>
+
+        <div className="flex items-center gap-2 mt-auto pt-1">
+          <Button onClick={openReview} className="flex-1 gap-1 font-semibold"
+                  style={{ backgroundColor: CS_PRIMARY, color: "#fff" }}>
+            Review <ArrowUpRight className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" onClick={openTikTok} className="gap-1"
+                  style={{ color: CS_NAVY, borderColor: CS_BORDER }}>
+            <ExternalLink className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Block ─────────────────────────────────────────────────────────
+export default function Block() {
+  const user = useCurrentUser();
+  const { data, status, refetch } = useRecords({ select });
+  const records = data?.pages?.[0]?.items ?? (Array.isArray(data) ? data : []);
+
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    return records.filter((r) => {
+      const f = r.fields || {};
+      if (typeFilter !== "all" && valLabel(f.contentType).toLowerCase() !== typeFilter) return false;
+      if (statusFilter !== "all" && valLabel(f.status).toLowerCase() !== statusFilter) return false;
+      if (s && !((f.title || "") + " " + (f.description || "")).toLowerCase().includes(s)) return false;
+      return true;
+    });
+  }, [records, typeFilter, statusFilter, search]);
+
+  const handleRefresh = async () => {
+    if (!user?.id) { toast.error("Not signed in"); return; }
+    setRefreshing(true);
+    try {
+      await fetch(`${REFRESH_WEBHOOK_URL}?user_id=${encodeURIComponent(user.id)}`);
+      // give the workflow a moment to write new rows, then reload the grid
+      setTimeout(async () => { await refetch(); setRefreshing(false); toast.success("Checked for new videos"); }, 4000);
+    } catch (e) {
+      setRefreshing(false);
+      toast.error("Refresh failed", { description: e?.message });
+    }
+  };
+
+  return (
+    <>
+      <Toaster />
+      <div className="container py-6">
+        <div className="content mx-auto space-y-5" style={{ maxWidth: 1140 }}>
+
+          {/* top bar */}
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-[130px] h-9"><SelectValue placeholder="Type" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  <SelectItem value="video">Video</SelectItem>
+                  <SelectItem value="live">Live</SelectItem>
+                  <SelectItem value="shop">Shop</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[140px] h-9"><SelectValue placeholder="Status" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="published">Published</SelectItem>
+                  <SelectItem value="scheduled">Scheduled</SelectItem>
+                  <SelectItem value="drafts">Drafts</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative">
+                <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2" style={{ color: CS_MUTED }} />
+                <Input value={search} onChange={(e) => setSearch(e.target.value)}
+                       placeholder="Search" className="pl-9 h-9 w-[200px]" />
+              </div>
+            </div>
+            <Button onClick={handleRefresh} disabled={refreshing} className="gap-2 font-semibold"
+                    style={{ backgroundColor: CS_PRIMARY, color: "#fff" }}>
+              <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </Button>
+          </div>
+
+          {/* grid */}
+          {status === "pending" ? (
+            <div className="py-16 text-center" style={{ color: CS_MUTED }}>Loading…</div>
+          ) : filtered.length === 0 ? (
+            <div className="py-16 text-center" style={{ color: CS_MUTED }}>
+              No content yet. Hit Refresh to pull your latest TikToks.
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {filtered.map((r) => <ContentCard key={r.id} record={r} />)}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}

@@ -30,7 +30,7 @@ const TIKTOK_LOGO =
   "https://res.cloudinary.com/dmrekfwpj/image/upload/v1776343756/tiktok_logo_wht_tras_bkg_zk9cqt.png";
 
 const TIKTOK_OAUTH_BASE =
-  "https://www.tiktok.com/v2/auth/authorize/?client_key=sbaw80qjizq8tx78nd&scope=user.info.basic%2Cuser.info.profile%2Cuser.info.stats%2Cvideo.list%2Cvideo.publish%2Cvideo.upload&response_type=code&redirect_uri=https%3A%2F%2Fwww.creatorscans.com%2Fdashboard";
+  "https://www.tiktok.com/v2/auth/authorize/?client_key=aw3f0uyendq72iso&scope=user.info.basic%2Cuser.info.profile%2Cuser.info.stats%2Cvideo.list%2Cvideo.publish%2Cvideo.upload&response_type=code&redirect_uri=https%3A%2F%2Fwww.creatorscans.com%2Fdashboard";
 
 // ─── Field map (Users table). Keys are aliases used everywhere ────
 const select = q.select({
@@ -38,7 +38,7 @@ const select = q.select({
   fullName: "PXdkq",
   avatar: "8L9hV",
   tiktokUsername: "uZ8z0",
-  tiktokConnected: "gfgBN",
+  tiktokOpenId: "jFUGr",
   shopBound: "bTOzJ",
   liveBound: "sZ3R2",
   bio: "on8OZ",
@@ -258,9 +258,10 @@ export default function Block() {
         .slice(0, 2)
     : "?";
 
-  // Connection status comes from the dedicated tiktokConnected boolean
-  // (gfgBN). Bev's n8n OAuth callback flips this true on success.
-  const isConnected = !!data.fields.tiktokConnected;
+  // Connection status comes from tiktokOpenId (jFUGr), which the n8n
+  // OAuth callback writes on success. (The old gfgBN "tiktokConnected"
+  // boolean was never written by n8n, so it always read false.)
+  const isConnected = !!data.fields.tiktokOpenId;
 
   const startEdit = (section, initialData) => {
     setEditSection(section);
@@ -312,7 +313,7 @@ export default function Block() {
     updateRecord.mutate({
       recordId: data.id,
       fields: {
-        tiktokConnected: false,
+        tiktokOpenId: "",
         shopBound: false,
         liveBound: false,
       },

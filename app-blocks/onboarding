@@ -24,9 +24,11 @@ import {
 } from "lucide-react";
 
 // ─── Configuration ────────────────────────────────────────────────
-// TikTok OAuth (sandbox). Swap client_key when going to production.
+// TikTok OAuth (production). client_key must match the app whose
+// client_secret is set in the n8n token-exchange node, or the code
+// exchange fails.
 const TIKTOK_OAUTH_BASE =
-  "https://www.tiktok.com/v2/auth/authorize/?client_key=sbaw80qjizq8tx78nd&scope=user.info.basic%2Cuser.info.profile%2Cuser.info.stats%2Cvideo.list%2Cvideo.publish%2Cvideo.upload&response_type=code&redirect_uri=https%3A%2F%2Fwww.creatorscans.com%2Fdashboard";
+  "https://www.tiktok.com/v2/auth/authorize/?client_key=aw3f0uyendq72iso&scope=user.info.basic%2Cuser.info.profile%2Cuser.info.stats%2Cvideo.list%2Cvideo.publish%2Cvideo.upload&response_type=code&redirect_uri=https%3A%2F%2Fwww.creatorscans.com%2Fdashboard";
 
 const CS_BLUE = "#001364";
 const CS_PINK = "#FE2C55";
@@ -153,6 +155,9 @@ const POSITION_OPTIONS = [
   { id: "e12b6edf-a034-4f1f-9b57-8bf1365c96fe", label: "Student" },
   { id: "6d6f0ec4-1285-44bc-b04e-bd7b0f8f47a4", label: "Graduate" },
   { id: "0ee3900c-360f-47b9-a206-1499bae874f1", label: "First job" },
+  { id: "99ba97c7-302c-4915-84bd-01d434d2ad4c", label: "Assistant" },
+  { id: "83ff2c7e-c7f7-499c-8ab0-c76f42d1a68e", label: "Junior" },
+  { id: "0a47a335-e83c-4a9b-88a8-035aecbff6d5", label: "Executive" },
   { id: "8944af77-ed1f-4403-bb9e-135c208eb302", label: "Supervisor" },
   { id: "f3c40a91-41c4-440f-aa66-ec449b8c9805", label: "Manager" },
   { id: "1d625b39-64a0-4691-9364-45c4cfd1f511", label: "Senior Manger" },
@@ -704,21 +709,14 @@ export default function Block() {
     updateRecord.mutate({ recordId: user.id, fields: updates });
   };
 
-  // ─── Render guards ─────────────────────────────────────────────
-  if (!user?.id) {
-    return (
-      <div className="container py-12">
-        <div className="content flex items-center justify-center min-h-[400px]">
-          <div className="text-destructive">
-            Please sign in to continue your onboarding.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // ─── Derived ───────────────────────────────────────────────────
+  // No hard "please sign in" guard here: it blocked previewing the
+  // block in Softr Studio, where there's no authenticated user. Real
+  // access is gated by the page's Softr Visibility tab, and the save
+  // handlers above already no-op (toast "Not signed in") when there's
+  // no user.id — so the form is safe to render logged-out.
   const firstName =
-    user.fullName?.trim().split(/\s+/)[0] || "there";
+    user?.fullName?.trim().split(/\s+/)[0] || "there";
 
   const step = STEPS[stepIdx];
   const showBack = stepIdx > 0 && step.id !== "welcome";
@@ -979,7 +977,7 @@ export default function Block() {
                       <Input
                         value={form.heritage}
                         onChange={(e) => set("heritage", e.target.value)}
-                        placeholder="British-Ghanaian"
+                        placeholder="British"
                       />
                     </div>
                     <div className="space-y-2">

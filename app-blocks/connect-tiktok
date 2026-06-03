@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useRecord, useCurrentRecordId, q } from "@/lib/datasource";
+import { useRecord, q } from "@/lib/datasource";
+import { useCurrentUser } from "@/lib/user";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +9,9 @@ import { Toaster } from "@/components/ui/sonner";
 import { Check, Loader2, AlertCircle, ExternalLink } from "lucide-react";
 
 // ============================================================================
-// CONFIG — replace WORKFLOW_WEBHOOK_URL after creating the Softr Workflow
+// CONFIG — TikTok OAuth (production) + n8n connect webhook.
+// WORKFLOW_WEBHOOK_URL points at the n8n "TikTok Connect (Full)" workflow,
+// which does the token exchange, profile + video fetch, and Softr writes.
 // ============================================================================
 const TIKTOK_CLIENT_KEY = "aw3f0uyendq72iso";
 const TIKTOK_REDIRECT_URI = "https://www.creatorscans.com/dashboard";
@@ -22,7 +25,7 @@ const TIKTOK_SCOPES = [
 ].join(",");
 const TIKTOK_AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/";
 
-const WORKFLOW_WEBHOOK_URL = "https://workflows-api.softr.io/v1/workflows/62f0c639-4d24-4bdf-936f-9f3fe616503d/executions/4f26166c-83c0-4ef1-a267-79337c5a8f7d";
+const WORKFLOW_WEBHOOK_URL = "https://overploy.app.n8n.cloud/webhook/tiktok-connect";
 
 const STATE_STORAGE_KEY = "cs_tiktok_oauth_state";
 
@@ -72,7 +75,12 @@ function clearOAuthParamsFromUrl() {
 // Block
 // ============================================================================
 export default function Block() {
-  const recordId = useCurrentRecordId();
+  // /dashboard isn't a record-detail page, so useCurrentRecordId() is
+  // empty here and the OAuth callback would silently never fire. The
+  // logged-in user's id IS their Users-table record id (the same value
+  // onboarding writes to), so read it from useCurrentUser() instead.
+  const user = useCurrentUser();
+  const recordId = user?.id;
   const { data, status, refetch } = useRecord({ recordId, select });
 
   const [exchangeState, setExchangeState] = useState<
@@ -81,7 +89,7 @@ export default function Block() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const ranCallback = useRef(false);
 
-  const isConnected = !!data?.tiktokOpenId;
+  const isConnected = !!data?.fields?.tiktokOpenId;
 
   // -- Detect OAuth callback on mount and exchange code --------------------
   useEffect(() => {
@@ -105,6 +113,20 @@ export default function Block() {
     }
 
     if (!code) return;
+
+    // Double-fire guard. A TikTok auth code is single-use: if this block
+    // re-mounts (or the effect double-invokes) while the code is still in
+    // the URL, a second exchange hits TikTok with an already-spent code
+    // and fails with invalid_grant ("code expired"). The ranCallback ref
+    // only guards within one mount, so also fingerprint the code in
+    // sessionStorage, which survives remounts. A genuinely new code (a
+    // later reconnect) has a different value, so it isn't blocked.
+    try {
+      if (sessionStorage.getItem("cs_tiktok_handled_code") === code) return;
+      sessionStorage.setItem("cs_tiktok_handled_code", code);
+    } catch (e) {
+      // sessionStorage blocked — fall back to the ranCallback ref guard.
+    }
 
     ranCallback.current = true;
 
@@ -212,8 +234,8 @@ export default function Block() {
                     TikTok connected
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    {data?.tiktokUsername
-                      ? `@${data.tiktokUsername}`
+                    {data?.fields?.tiktokUsername
+                      ? `@${data.fields.tiktokUsername}`
                       : "Account linked"}
                   </div>
                 </div>
