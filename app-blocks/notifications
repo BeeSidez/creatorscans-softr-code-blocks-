@@ -1,0 +1,362 @@
+// /notifications · In-app notification list (Creator Scans)
+//
+// Reads from the Notifications table. The per-user filter happens at the
+// Source-tab level — Softr's data layer can't filter on a user relation in
+// code, so the Source binding is the gatekeeper.
+//
+// Click an unread notification → marks it read via useRecordUpdate.
+// Mark-all-as-read fires the updates in parallel.
+//
+// SOFTR CONFIG REQUIRED:
+//   Source tab: bind to NOTIFICATIONS, filter where `users` contains
+//   the logged-in user.
+
+import { useState, useMemo } from "react";
+import { useRecords, useRecordUpdate, q } from "@/lib/datasource";
+import { Button } from "@/components/ui/button";
+import { Bell, CheckCheck } from "lucide-react";
+import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
+
+// ─── Creator Scans palette ────────────────────────────────────────
+const CS_ACCENT   = "#000A30";
+const CS_NAVY     = "#001364";
+const CS_PRIMARY  = "#5E7BF6";
+const CS_BORDER   = "#eef4fd";
+const CS_MUTED    = "#6b7a99";
+const CS_GREEN    = "#16a34a";
+const CS_RED      = "#fe2c55";
+
+// ─── Field map (Notifications table) ──────────────────────────────
+const select = q.select({
+  notifId:        "jhj9V", // RECORD_ID (primary — required)
+  title:          "OvP8C", // FORMULA — full headline
+  notifType:      "2maET", // SELECT
+  friendlyTime:   "W876L", // FORMULA — "just now", "2 hours ago"
+  createdAt:      "sNX2D", // CREATED_AT (sort)
+  logo:           "aOvXZ", // URL
+  isRead:         "rPeiN", // CHECKBOX
+  sysMessage:     "nZHpg", // LONG_TEXT — system update body
+  sysTitle:       "pVGDf", // SINGLE_LINE_TEXT — system update sub-headline
+  warningMessage: "iihrg", // LONG_TEXT — warning body
+  aiFeedback:     "zOo2R", // LOOKUP — proof feedback
+  rejectionReason:"ioojx", // LOOKUP — rejection reason
+});
+
+const updateFields = q.select({
+  isRead: "rPeiN",
+});
+
+// ─── Helpers ──────────────────────────────────────────────────────
+function asLabel(v) {
+  if (!v) return "";
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v[0]?.label ?? "";
+  return v.label ?? "";
+}
+// Lookups come back as arrays (of strings or {label}); pull the first non-empty.
+function firstText(v) {
+  if (!v) return "";
+  if (Array.isArray(v)) {
+    const x = v.find(Boolean);
+    if (!x) return "";
+    return typeof x === "string" ? x : (x.label ?? x.value ?? "");
+  }
+  return typeof v === "string" ? v : (v.label ?? "");
+}
+// The body text lives in a different field depending on the notification type.
+function deriveMessage(f, type) {
+  const sys  = (f.sysMessage || "").trim();
+  const warn = (f.warningMessage || "").trim();
+  const ai   = firstText(f.aiFeedback).trim();
+  const rej  = firstText(f.rejectionReason).trim();
+  const t = (type || "").toLowerCase();
+  if (t.includes("reject")) return rej || ai || warn || sys;
+  if (t.includes("system")) return sys || (f.sysTitle || "");
+  if (t.includes("warning")) return warn || sys;
+  return ai || sys || warn || rej; // approved / verified / streak / welcome / etc.
+}
+function typeColor(type) {
+  const t = (type || "").toLowerCase();
+  if (t.includes("reject") || t.includes("warning")) return CS_RED;
+  if (t.includes("approve") || t.includes("verif") || t.includes("streak") || t.includes("milestone")) return CS_GREEN;
+  return CS_PRIMARY;
+}
+
+// ─── Main Block ───────────────────────────────────────────────────
+export default function Block() {
+  const [filter, setFilter] = useState("all"); // 'all' | 'unread'
+  const [bulkSaving, setBulkSaving] = useState(false);
+
+  const { data, status, refetch } = useRecords({ select, count: 200 });
+  const records = data?.pages?.flatMap((p) => p?.items ?? []) ?? [];
+
+  const notifications = useMemo(() => {
+    return records
+      .map((r) => {
+        const f = r?.fields || {};
+        const notifType = asLabel(f.notifType);
+        return {
+          id: r.id,
+          title: f.title || "",
+          message: deriveMessage(f, notifType),
+          isRead: !!f.isRead,
+          friendlyTime: f.friendlyTime || "",
+          createdAt: f.createdAt,
+          notifType,
+          logo: f.logo || "",
+        };
+      })
+      .sort((a, b) => {
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return tb - ta;
+      });
+  }, [records]);
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const visible = filter === "unread"
+    ? notifications.filter((n) => !n.isRead)
+    : notifications;
+
+  const updateRecord = useRecordUpdate({
+    fields: updateFields,
+    onError(err) {
+      toast.error("Couldn't update notification", {
+        description: err?.message || "Try again.",
+      });
+    },
+  });
+
+  const markAsRead = (id) => {
+    updateRecord.mutate({ recordId: id, fields: { isRead: true } });
+  };
+
+  const markAllAsRead = async () => {
+    const unread = notifications.filter((n) => !n.isRead);
+    if (unread.length === 0) return;
+    setBulkSaving(true);
+    try {
+      await Promise.all(
+        unread.map((n) =>
+          updateRecord.mutateAsync({ recordId: n.id, fields: { isRead: true } }),
+        ),
+      );
+      toast.success(`Marked ${unread.length} as read`);
+      await refetch();
+    } catch (e) {
+      toast.error("Couldn't mark all as read");
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <Toaster />
+      <Style />
+      <div className="cs-notif content mx-auto py-4 space-y-4" style={{ maxWidth: 680 }}>
+
+        {/* Section pill */}
+        <div className="cs-notif-pill">
+          <span className="cs-notif-pill-dot" />
+          Notifications
+        </div>
+
+        {/* Header + mark-all */}
+        <div className="cs-notif-header">
+          <div>
+            <h2 className="cs-notif-title">Notifications</h2>
+            <p className="cs-notif-sub">
+              {unreadCount > 0 ? `You have ${unreadCount} unread` : "You're all caught up"}
+            </p>
+          </div>
+          {unreadCount > 0 && (
+            <Button
+              onClick={markAllAsRead}
+              disabled={bulkSaving}
+              variant="outline"
+              className="cs-notif-mark-all gap-2"
+            >
+              <CheckCheck className="h-4 w-4" />
+              {bulkSaving ? "Marking…" : "Mark all as read"}
+            </Button>
+          )}
+        </div>
+
+        {/* Tabs */}
+        <div className="cs-notif-tabs">
+          <button
+            type="button"
+            onClick={() => setFilter("all")}
+            className={`cs-notif-tab ${filter === "all" ? "is-active" : ""}`}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter("unread")}
+            className={`cs-notif-tab ${filter === "unread" ? "is-active" : ""}`}
+          >
+            Unread
+            {unreadCount > 0 && <span className="cs-notif-tab-count">{unreadCount}</span>}
+          </button>
+        </div>
+
+        {/* List */}
+        {status === "pending" ? (
+          <div className="cs-notif-empty"><p>Loading…</p></div>
+        ) : visible.length === 0 ? (
+          <div className="cs-notif-empty">
+            <Bell className="cs-notif-empty-icon" />
+            <p>{filter === "unread" ? "No unread notifications" : "No notifications yet"}</p>
+          </div>
+        ) : (
+          <div className="cs-notif-list">
+            {visible.map((n) => {
+              const clickable = !n.isRead;
+              const tColor = typeColor(n.notifType);
+              return (
+                <div
+                  key={n.id}
+                  className={`cs-notif-item ${n.isRead ? "is-read" : "is-unread"} ${clickable ? "is-clickable" : ""}`}
+                  onClick={clickable ? () => markAsRead(n.id) : undefined}
+                  role={clickable ? "button" : undefined}
+                  tabIndex={clickable ? 0 : undefined}
+                  onKeyDown={clickable ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); markAsRead(n.id); }
+                  } : undefined}
+                >
+                  {n.logo ? (
+                    <img src={n.logo} alt="" className="cs-notif-logo" />
+                  ) : (
+                    <div className="cs-notif-logo-fallback"><Bell className="h-5 w-5" /></div>
+                  )}
+                  <div className="cs-notif-body">
+                    <div className="cs-notif-item-title">{n.title || "(untitled)"}</div>
+                    {n.message && <div className="cs-notif-item-message">{n.message}</div>}
+                    <div className="cs-notif-item-meta">
+                      {n.notifType && (
+                        <span className="cs-notif-item-type" style={{ color: n.isRead ? CS_MUTED : tColor }}>
+                          {n.notifType}
+                        </span>
+                      )}
+                      {n.notifType && n.friendlyTime && <span className="cs-notif-item-dot">·</span>}
+                      {n.friendlyTime && <span className="cs-notif-item-time">{n.friendlyTime}</span>}
+                    </div>
+                  </div>
+                  {!n.isRead && <span className="cs-notif-unread-dot" style={{ background: tColor }} />}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function Style() {
+  return (
+    <style>
+      {`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        .cs-notif, .cs-notif * { font-family: 'Inter', sans-serif; }
+
+        /* ── Section pill ── */
+        .cs-notif-pill {
+          display: inline-flex; align-items: center; gap: 8px;
+          padding: 4px 12px;
+          background: rgba(94, 123, 246, 0.10);
+          border: 1px solid rgba(94, 123, 246, 0.25);
+          border-radius: 999px;
+          color: ${CS_PRIMARY};
+          font-size: 12px; font-weight: 600;
+          text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .cs-notif-pill-dot { width: 6px; height: 6px; border-radius: 50%; background: ${CS_PRIMARY}; }
+
+        /* ── Header ── */
+        .cs-notif-header {
+          display: flex; align-items: flex-start; justify-content: space-between;
+          gap: 16px; flex-wrap: wrap;
+        }
+        .cs-notif-title { font-size: 24px; font-weight: 600; color: ${CS_ACCENT}; letter-spacing: -0.01em; margin: 0; }
+        .cs-notif-sub { font-size: 14px; color: ${CS_MUTED}; margin: 4px 0 0; }
+        .cs-notif-mark-all {
+          font-weight: 600 !important; font-size: 14px !important;
+          border-radius: 8px !important; color: ${CS_NAVY} !important;
+          border-color: ${CS_BORDER} !important;
+        }
+
+        /* ── Tabs ── */
+        .cs-notif-tabs { display: flex; gap: 4px; border-bottom: 1px solid ${CS_BORDER}; padding-top: 4px; }
+        .cs-notif-tab {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 10px 14px; background: transparent; border: none;
+          border-bottom: 2px solid transparent;
+          color: ${CS_MUTED}; font-size: 14px; font-weight: 600; cursor: pointer;
+          margin-bottom: -1px; transition: color 0.18s ease, border-color 0.18s ease;
+        }
+        .cs-notif-tab:hover { color: ${CS_NAVY}; }
+        .cs-notif-tab.is-active { color: ${CS_ACCENT}; border-bottom-color: ${CS_PRIMARY}; }
+        .cs-notif-tab-count {
+          display: inline-flex; align-items: center; justify-content: center;
+          min-width: 20px; height: 20px; padding: 0 6px;
+          background: ${CS_PRIMARY}; color: #FFFFFF;
+          font-size: 11px; font-weight: 700; border-radius: 999px;
+        }
+
+        /* ── List ── */
+        .cs-notif-list { display: flex; flex-direction: column; gap: 8px; }
+        .cs-notif-item {
+          display: flex; align-items: flex-start; gap: 14px;
+          padding: 16px; background: #FFFFFF;
+          border: 1px solid ${CS_BORDER}; border-radius: 12px;
+          box-shadow: 0 1px 2px rgba(0, 19, 100, 0.04);
+          position: relative; transition: background 0.18s ease, border-color 0.18s ease;
+        }
+        .cs-notif-item.is-unread { background: rgba(94, 123, 246, 0.04); border-color: rgba(94, 123, 246, 0.25); }
+        .cs-notif-item.is-clickable { cursor: pointer; }
+        .cs-notif-item.is-clickable:hover { background: rgba(94, 123, 246, 0.08); border-color: ${CS_PRIMARY}; }
+        .cs-notif-item.is-clickable:focus-visible { outline: 2px solid ${CS_PRIMARY}; outline-offset: 2px; }
+
+        .cs-notif-logo {
+          width: 40px; height: 40px; border-radius: 10px; object-fit: cover;
+          flex-shrink: 0; background: #FFFFFF; border: 1px solid ${CS_BORDER};
+        }
+        .cs-notif-logo-fallback {
+          width: 40px; height: 40px; border-radius: 10px;
+          background: rgba(94, 123, 246, 0.10); color: ${CS_PRIMARY};
+          display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+
+        .cs-notif-body { flex: 1; min-width: 0; }
+        .cs-notif-item-title { font-size: 14px; font-weight: 600; color: ${CS_ACCENT}; line-height: 1.4; margin-bottom: 2px; }
+        .cs-notif-item.is-read .cs-notif-item-title { font-weight: 500; color: ${CS_NAVY}; }
+        .cs-notif-item-message {
+          font-size: 13px; color: ${CS_MUTED}; line-height: 1.5; margin-bottom: 6px;
+          display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .cs-notif-item-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: ${CS_MUTED}; font-weight: 500; }
+        .cs-notif-item-type { font-weight: 600; }
+        .cs-notif-item-dot { opacity: 0.5; }
+
+        .cs-notif-unread-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 6px; }
+
+        /* ── Empty state ── */
+        .cs-notif-empty {
+          padding: 64px 20px; text-align: center; color: ${CS_MUTED}; font-size: 14px;
+          background: #FFFFFF; border: 1px dashed ${CS_BORDER}; border-radius: 12px;
+        }
+        .cs-notif-empty-icon { width: 32px; height: 32px; margin: 0 auto 8px; color: ${CS_PRIMARY}; opacity: 0.5; display: block; }
+
+        @media (max-width: 640px) {
+          .cs-notif-title { font-size: 22px; }
+          .cs-notif-item { padding: 12px; gap: 10px; }
+          .cs-notif-logo, .cs-notif-logo-fallback { width: 36px; height: 36px; }
+        }
+      `}
+    </style>
+  );
+}
